@@ -64,7 +64,7 @@ fi
 
 # 2. Check Namespaces
 print_header "2. Checking Namespaces"
-for ns in istio-system istio-ingress observability bookinfo; do
+for ns in istio-system istio-ingress bookinfo; do
     if kubectl get namespace $ns &> /dev/null; then
         print_success "Namespace '$ns' exists"
         ((PASS++))
@@ -128,10 +128,10 @@ else
 fi
 
 # 7. Check Observability Stack
-print_header "7. Checking Observability Stack"
+print_header "7. Checking Observability Stack (in istio-system)"
 
 for component in prometheus grafana jaeger kiali; do
-    STATUS=$(kubectl get deploy $component -n observability -o jsonpath='{.status.availableReplicas}' 2>/dev/null)
+    STATUS=$(kubectl get deploy $component -n istio-system -o jsonpath='{.status.availableReplicas}' 2>/dev/null)
     if [ "$STATUS" -ge 1 ]; then
         print_success "$component is running"
         ((PASS++))
@@ -144,13 +144,14 @@ done
 # 8. Check Application Pods
 print_header "8. Checking Bookinfo Application"
 
-for app in productpage details ratings reviews-v1 reviews-v2 reviews-v3; do
-    STATUS=$(kubectl get pods -n bookinfo -l app=${app%-*} -l version=${app##*-} -o jsonpath='{.items[0].status.phase}' 2>/dev/null)
-    if [ "$STATUS" == "Running" ]; then
-        print_success "$app pod is running"
+# Check each deployment
+for deployment in productpage-v1 details-v1 ratings-v1 reviews-v1 reviews-v2 reviews-v3; do
+    STATUS=$(kubectl get deploy $deployment -n bookinfo -o jsonpath='{.status.availableReplicas}' 2>/dev/null)
+    if [ "$STATUS" -ge 1 ]; then
+        print_success "$deployment pod is running"
         ((PASS++))
     else
-        print_error "$app pod is not running (Status: $STATUS)"
+        print_error "$deployment pod is not running"
         ((FAIL++))
     fi
 done
@@ -182,11 +183,24 @@ else
     ((FAIL++))
 fi
 
-# 11. Test Application Connectivity
-print_header "11. Testing Application Connectivity"
+# 11. Check Ingress Gateway
+print_header "11. Checking Ingress Gateway"
+
+INGRESS_STATUS=$(kubectl get deploy istio-ingressgateway -n istio-system -o jsonpath='{.status.availableReplicas}' 2>/dev/null)
+if [ "$INGRESS_STATUS" -ge 1 ]; then
+    print_success "Istio ingress gateway is running"
+    ((PASS++))
+else
+    print_error "Istio ingress gateway is not running"
+    ((FAIL++))
+fi
+
+# 12. Test Application Connectivity
+print_header "12. Testing Application Connectivity"
 
 MINIKUBE_IP=$(minikube ip -p $PROFILE)
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://${MINIKUBE_IP}:30080/productpage 2>/dev/null)
+INGRESS_PORT=$(kubectl get svc istio-ingressgateway -n istio-system -o jsonpath='{.spec.ports[?(@.name=="http2")].nodePort}')
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://${MINIKUBE_IP}:${INGRESS_PORT}/productpage 2>/dev/null)
 
 if [ "$HTTP_CODE" == "200" ]; then
     print_success "Application is accessible (HTTP $HTTP_CODE)"
@@ -196,8 +210,8 @@ else
     ((FAIL++))
 fi
 
-# 12. Test Internal Communication
-print_header "12. Testing Internal Service Communication"
+# 13. Test Internal Communication
+print_header "13. Testing Internal Service Communication"
 
 kubectl exec -n bookinfo deploy/sleep -- curl -s -o /dev/null -w "%{http_code}" http://productpage:9080/productpage > /tmp/internal-test.txt 2>&1
 INTERNAL_CODE=$(cat /tmp/internal-test.txt)

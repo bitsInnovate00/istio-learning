@@ -17,8 +17,16 @@ if [ -z "$MINIKUBE_IP" ]; then
     exit 1
 fi
 
-# Use NodePort 30080 (defined in bookinfo-gateway.yaml)
-URL="http://${MINIKUBE_IP}:30080/productpage"
+# Get the ingress gateway NodePort dynamically
+GATEWAY_PORT=$(kubectl get svc istio-ingressgateway -n istio-system -o jsonpath='{.spec.ports[?(@.name=="http2")].nodePort}')
+
+if [ -z "$GATEWAY_PORT" ]; then
+    echo "Error: Could not find ingress gateway port"
+    echo "Make sure istio-ingressgateway service exists in istio-system namespace"
+    exit 1
+fi
+
+URL="http://${MINIKUBE_IP}:${GATEWAY_PORT}/productpage"
 
 echo "Target URL: $URL"
 echo ""
@@ -63,6 +71,6 @@ echo "Failed requests: $FAILED"
 echo "Success rate: $(awk "BEGIN {printf \"%.2f\", ($SUCCESS/$REQUESTS)*100}")%"
 echo ""
 echo "Check observability dashboards:"
-echo "  - Grafana: kubectl port-forward -n observability svc/grafana 3000:3000"
-echo "  - Kiali: kubectl port-forward -n observability svc/kiali 20001:20001"
-echo "  - Jaeger: kubectl port-forward -n observability svc/tracing 16686:16686"
+echo "  - Grafana: kubectl port-forward -n istio-system svc/grafana 3000:3000"
+echo "  - Kiali: kubectl port-forward -n istio-system svc/kiali 20001:20001"
+echo "  - Jaeger: kubectl port-forward -n istio-system svc/tracing 16686:16686"

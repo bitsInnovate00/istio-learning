@@ -42,6 +42,8 @@ spec:
         port:
           number: 9080
 ---
+# Note: In ambient mode, mTLS is handled by ztunnel automatically
+# DestinationRules for traffic shaping only, no TLS config needed
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
@@ -49,9 +51,6 @@ metadata:
   namespace: bookinfo
 spec:
   host: productpage
-  trafficPolicy:
-    tls:
-      mode: ISTIO_MUTUAL
   subsets:
   - name: v1
     labels:
@@ -64,9 +63,6 @@ metadata:
   namespace: bookinfo
 spec:
   host: reviews
-  trafficPolicy:
-    tls:
-      mode: ISTIO_MUTUAL
   subsets:
   - name: v1
     labels:
@@ -85,9 +81,6 @@ metadata:
   namespace: bookinfo
 spec:
   host: ratings
-  trafficPolicy:
-    tls:
-      mode: ISTIO_MUTUAL
   subsets:
   - name: v1
     labels:
@@ -100,9 +93,6 @@ metadata:
   namespace: bookinfo
 spec:
   host: details
-  trafficPolicy:
-    tls:
-      mode: ISTIO_MUTUAL
   subsets:
   - name: v1
     labels:

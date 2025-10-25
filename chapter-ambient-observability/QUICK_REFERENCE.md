@@ -31,13 +31,14 @@ istioctl install --set profile=ambient --skip-confirmation
 # 5. Label namespace for ambient mode
 kubectl label namespace bookinfo istio.io/dataplane-mode=ambient
 
-# 6. Install observability (from chapter-ambient-observability directory)
-kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/prometheus.yaml -n observability
-kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/grafana.yaml -n observability
-kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/jaeger.yaml -n observability
-kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/kiali.yaml -n observability
+# 6. Install observability (these deploy to istio-system by default)
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/prometheus.yaml
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/grafana.yaml
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/jaeger.yaml
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/kiali.yaml
 
-# 7. Apply configurations
+# 7. Apply configurations (navigate back to chapter-ambient-observability directory)
+cd ../
 kubectl apply -f manifests/telemetry-config.yaml
 kubectl apply -f manifests/peer-authentication.yaml
 
@@ -70,7 +71,7 @@ kubectl get ds -n istio-system ztunnel
 kubectl get ds -n istio-system istio-cni-node
 
 # Observability stack
-kubectl get pods -n observability
+kubectl get pods -n istio-system | grep -E "prometheus|grafana|jaeger|kiali"
 
 # Application
 kubectl get pods -n bookinfo
@@ -105,31 +106,56 @@ kubectl logs -n bookinfo job/mtls-verification
 ### Individual Dashboards
 ```bash
 # Grafana (http://localhost:3000, admin/admin)
-kubectl port-forward -n observability svc/grafana 3000:3000
+kubectl port-forward -n istio-system svc/grafana 3000:3000
 
 # Kiali (http://localhost:20001, admin/admin)
-kubectl port-forward -n observability svc/kiali 20001:20001
+kubectl port-forward -n istio-system svc/kiali 20001:20001
 
 # Jaeger (http://localhost:16686)
-kubectl port-forward -n observability svc/tracing 16686:16686
+kubectl port-forward -n istio-system svc/tracing 16686:80
 
 # Prometheus (http://localhost:9090)
-kubectl port-forward -n observability svc/prometheus 9090:9090
+kubectl port-forward -n istio-system svc/prometheus 9090:9090
 ```
 
 ## 🧪 Testing
 
-### Generate Traffic
+### Access Product Page in Browser
+
+**For WSL2/Docker driver (recommended):**
 ```bash
-# Using script
+# Use the helper script
+./scripts/access-productpage.sh
+
+# Or manually with port-forward
+kubectl port-forward -n istio-system svc/istio-ingressgateway 8080:80
+# Then open: http://localhost:8080/productpage
+```
+
+**For native Linux/macOS with direct network access:**
+```bash
+MINIKUBE_IP=$(minikube ip -p istio-ambient)
+GATEWAY_PORT=$(kubectl get svc istio-ingressgateway -n istio-system \
+              -o jsonpath='{.spec.ports[?(@.name=="http2")].nodePort}')
+echo "Open in browser: http://${MINIKUBE_IP}:${GATEWAY_PORT}/productpage"
+```
+
+### Generate Traffic (Command Line)
+```bash
+# Using script (with dynamic port discovery)
 ./scripts/generate-traffic.sh 100 2
 
 # Manual
 MINIKUBE_IP=$(minikube ip -p istio-ambient)
-curl http://${MINIKUBE_IP}:30080/productpage
+GATEWAY_PORT=$(kubectl get svc istio-ingressgateway -n istio-system \
+              -o jsonpath='{.spec.ports[?(@.name=="http2")].nodePort}')
+curl http://${MINIKUBE_IP}:${GATEWAY_PORT}/productpage
 
 # Continuous traffic
-for i in {1..100}; do curl -s http://${MINIKUBE_IP}:30080/productpage; sleep 2; done
+for i in {1..100}; do 
+  curl -s http://${MINIKUBE_IP}:${GATEWAY_PORT}/productpage > /dev/null
+  sleep 2
+done
 ```
 
 ### Test Internal Communication
@@ -223,8 +249,11 @@ kubectl get events -A --sort-by='.lastTimestamp'
 # Delete application
 kubectl delete namespace bookinfo
 
-# Delete observability
-kubectl delete namespace observability
+# Delete observability (deployed in istio-system)
+kubectl delete -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/prometheus.yaml
+kubectl delete -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/grafana.yaml
+kubectl delete -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/jaeger.yaml
+kubectl delete -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/kiali.yaml
 
 # Uninstall Istio
 istioctl uninstall --purge -y
@@ -352,7 +381,7 @@ minikube ip -p istio-ambient
 ### Issue: No Observability Data
 ```bash
 # Check Prometheus targets
-kubectl port-forward -n observability svc/prometheus 9090:9090
+kubectl port-forward -n istio-system svc/prometheus 9090:9090
 # Visit http://localhost:9090/targets
 
 # Check telemetry config

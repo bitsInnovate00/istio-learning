@@ -371,7 +371,37 @@ kubectl exec -n bookinfo deploy/sleep -- curl -s http://productpage:9080/product
 # Should return: <title>Simple Bookstore App</title>
 ```
 
-### Step 7.4: Verify Observability End-to-End
+### Step 7.4: Access Application in Browser
+
+**For WSL2/Docker driver environments:**
+
+The Minikube IP is not directly accessible from Windows browser, so use port-forwarding:
+
+```bash
+# Option 1: Use helper script
+./scripts/access-productpage.sh
+
+# Option 2: Manual port-forward
+kubectl port-forward -n istio-system svc/istio-ingressgateway 8080:80
+# Then open in Windows browser: http://localhost:8080/productpage
+```
+
+**For native Linux/macOS with direct network access:**
+
+```bash
+# Get the direct URL
+MINIKUBE_IP=$(minikube ip -p istio-ambient)
+GATEWAY_PORT=$(kubectl get svc istio-ingressgateway -n istio-system \
+              -o jsonpath='{.spec.ports[?(@.name=="http2")].nodePort}')
+echo "Open in browser: http://${MINIKUBE_IP}:${GATEWAY_PORT}/productpage"
+```
+
+**Expected Result:**
+- Product page loads with book details
+- Ratings displayed (stars)
+- Reviews from different versions (refresh to see v1/v2/v3)
+
+### Step 7.5: Verify Observability End-to-End
 
 **Checklist:**
 - [ ] Grafana showing metrics for all services
@@ -380,6 +410,8 @@ kubectl exec -n bookinfo deploy/sleep -- curl -s http://productpage:9080/product
 - [ ] Prometheus scraping Istio metrics
 - [ ] mTLS enabled and verified
 - [ ] No sidecar containers in application pods
+- [ ] Product page accessible in browser
+- [ ] Traffic visible in all dashboards
 
 ---
 

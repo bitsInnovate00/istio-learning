@@ -34,10 +34,10 @@ start_port_forward() {
 }
 
 # Start all port-forwards
-start_port_forward "grafana" "observability" "3000" "3000" "Grafana"
-start_port_forward "kiali" "observability" "20001" "20001" "Kiali"
-start_port_forward "tracing" "observability" "16686" "16686" "Jaeger"
-start_port_forward "prometheus" "observability" "9090" "9090" "Prometheus"
+start_port_forward "grafana" "istio-system" "3000" "3000" "Grafana"
+start_port_forward "kiali" "istio-system" "20001" "20001" "Kiali"
+start_port_forward "tracing" "istio-system" "16686" "80" "Jaeger"
+start_port_forward "prometheus" "istio-system" "9090" "9090" "Prometheus"
 
 echo ""
 echo "======================================"

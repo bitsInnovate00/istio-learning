@@ -76,21 +76,22 @@ echo ""
 echo "Step 3: Creating namespaces..."
 kubectl create namespace istio-system --dry-run=client -o yaml | kubectl apply -f -
 kubectl create namespace istio-ingress --dry-run=client -o yaml | kubectl apply -f -
-kubectl create namespace observability --dry-run=client -o yaml | kubectl apply -f -
 kubectl create namespace bookinfo --dry-run=client -o yaml | kubectl apply -f -
-print_status "Namespaces created"
+print_status "Namespaces created (observability addons will deploy to istio-system)"
 
 # Step 4: Install Istio with ambient profile
 echo ""
-echo "Step 4: Installing Istio with ambient profile..."
+echo "Step 4: Installing Istio with ambient profile (including ingress gateway)..."
 istioctl install --set profile=ambient \
+    --set components.ingressGateways[0].name=istio-ingressgateway \
+    --set components.ingressGateways[0].enabled=true \
     --set values.pilot.resources.requests.cpu=1000m \
     --set values.pilot.resources.requests.memory=2Gi \
     --set values.global.proxy.resources.requests.cpu=100m \
     --set values.global.proxy.resources.requests.memory=128Mi \
     --skip-confirmation
 
-print_status "Istio installed"
+print_status "Istio installed with ingress gateway"
 
 # Wait for Istio components
 echo "Waiting for Istio components to be ready..."
@@ -105,26 +106,31 @@ print_status "Ambient mode enabled for bookinfo namespace"
 
 # Step 6: Install observability stack
 echo ""
-echo "Step 6: Installing observability stack..."
+echo "Step 6: Installing observability stack (to istio-system namespace)..."
 
+# Install addons with retries (sometimes need to apply twice due to CRD timing)
 echo "  - Installing Prometheus..."
-kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/prometheus.yaml -n observability
-kubectl wait --for=condition=available --timeout=300s deployment/prometheus -n observability
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/prometheus.yaml || \
+  kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/prometheus.yaml
+kubectl wait --for=condition=available --timeout=300s deployment/prometheus -n istio-system
 print_status "Prometheus installed"
 
 echo "  - Installing Grafana..."
-kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/grafana.yaml -n observability
-kubectl wait --for=condition=available --timeout=300s deployment/grafana -n observability
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/grafana.yaml || \
+  kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/grafana.yaml
+kubectl wait --for=condition=available --timeout=300s deployment/grafana -n istio-system
 print_status "Grafana installed"
 
 echo "  - Installing Jaeger..."
-kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/jaeger.yaml -n observability
-kubectl wait --for=condition=available --timeout=300s deployment/jaeger -n observability
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/jaeger.yaml || \
+  kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/jaeger.yaml
+kubectl wait --for=condition=available --timeout=300s deployment/jaeger -n istio-system
 print_status "Jaeger installed"
 
 echo "  - Installing Kiali..."
-kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/kiali.yaml -n observability
-kubectl wait --for=condition=available --timeout=300s deployment/kiali -n observability
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/kiali.yaml || \
+  kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/kiali.yaml
+kubectl wait --for=condition=available --timeout=300s deployment/kiali -n istio-system
 print_status "Kiali installed"
 
 # Step 7: Apply configurations
@@ -167,7 +173,19 @@ fi
 
 echo ""
 echo "Checking observability components..."
-kubectl get pods -n observability
+kubectl get pods -n istio-system | grep -E "prometheus|grafana|jaeger|kiali"
+
+echo ""
+echo "Checking ingress gateway..."
+GATEWAY_READY=$(kubectl get deploy istio-ingressgateway -n istio-system -o jsonpath='{.status.availableReplicas}' 2>/dev/null || echo "0")
+if [ "$GATEWAY_READY" -gt 0 ]; then
+    print_status "Ingress gateway is running"
+    GATEWAY_PORT=$(kubectl get svc istio-ingressgateway -n istio-system -o jsonpath='{.spec.ports[?(@.name=="http2")].nodePort}')
+    MINIKUBE_IP=$(minikube ip -p $PROFILE)
+    echo "   Gateway URL: http://${MINIKUBE_IP}:${GATEWAY_PORT}/productpage"
+else
+    print_error "Ingress gateway is not running"
+fi
 
 echo ""
 echo "======================================"
@@ -177,28 +195,36 @@ echo ""
 echo "Next steps:"
 echo ""
 echo "1. Access Grafana:"
-echo "   kubectl port-forward -n observability svc/grafana 3000:3000"
+echo "   kubectl port-forward -n istio-system svc/grafana 3000:3000"
 echo "   Open: http://localhost:3000"
 echo ""
 echo "2. Access Kiali:"
-echo "   kubectl port-forward -n observability svc/kiali 20001:20001"
+echo "   kubectl port-forward -n istio-system svc/kiali 20001:20001"
 echo "   Open: http://localhost:20001"
 echo ""
 echo "3. Access Jaeger:"
-echo "   kubectl port-forward -n observability svc/tracing 16686:16686"
+echo "   kubectl port-forward -n istio-system svc/tracing 16686:80"
 echo "   Open: http://localhost:16686"
 echo ""
 echo "4. Access Prometheus:"
-echo "   kubectl port-forward -n observability svc/prometheus 9090:9090"
+echo "   kubectl port-forward -n istio-system svc/prometheus 9090:9090"
 echo "   Open: http://localhost:9090"
 echo ""
-echo "5. Test the application:"
+echo "5. Test the application (command line):"
 echo "   MINIKUBE_IP=\$(minikube ip -p $PROFILE)"
-echo "   curl http://\${MINIKUBE_IP}:30080/productpage"
+echo "   GATEWAY_PORT=\$(kubectl get svc istio-ingressgateway -n istio-system -o jsonpath='{.spec.ports[?(@.name==\"http2\")].nodePort}')"
+echo "   curl http://\${MINIKUBE_IP}:\${GATEWAY_PORT}/productpage"
 echo ""
-echo "6. Generate traffic:"
-echo "   ./scripts/generate-traffic.sh"
+echo "6. Access application in browser (WSL2/Docker driver):"
+echo "   kubectl port-forward -n istio-system svc/istio-ingressgateway 8080:80"
+echo "   Open: http://localhost:8080/productpage"
 echo ""
-echo "7. Run verification tests:"
+echo "7. Open all dashboards (in separate terminals):"
+echo "   ./scripts/open-dashboards.sh"
+echo ""
+echo "8. Generate traffic:"
+echo "   ./scripts/generate-traffic.sh 100 2"
+echo ""
+echo "9. Run verification tests:"
 echo "   ./scripts/verify-installation.sh"
 echo ""

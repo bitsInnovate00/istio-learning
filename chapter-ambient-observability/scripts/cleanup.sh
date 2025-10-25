@@ -10,7 +10,7 @@ echo "======================================"
 echo ""
 echo "This will delete:"
 echo "  - Bookinfo application"
-echo "  - Observability stack"
+echo "  - Observability stack (from istio-system)"
 echo "  - Istio control plane"
 echo "  - All configurations"
 echo "  - Minikube cluster (optional)"
@@ -38,7 +38,10 @@ echo "✓ Configurations deleted"
 
 echo ""
 echo "Step 3: Deleting observability stack..."
-kubectl delete namespace observability --ignore-not-found=true
+kubectl delete -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/prometheus.yaml --ignore-not-found=true
+kubectl delete -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/grafana.yaml --ignore-not-found=true
+kubectl delete -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/jaeger.yaml --ignore-not-found=true
+kubectl delete -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/kiali.yaml --ignore-not-found=true
 echo "✓ Observability stack deleted"
 
 echo ""
