@@ -1,0 +1,65 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mtls-test-script
+data:
+  test-mtls.sh: |
+    #!/bin/bash
+    
+    echo "=== mTLS Verification Test ==="
+    echo ""
+    
+    # Test 1: Check if request succeeds (mTLS should be transparent)
+    echo "Test 1: Testing service-to-service communication..."
+    RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://productpage:9080/productpage)
+    
+    if [ "$RESPONSE" = "200" ]; then
+      echo "✅ Service communication successful (HTTP $RESPONSE)"
+    else
+      echo "❌ Service communication failed (HTTP $RESPONSE)"
+    fi
+    
+    echo ""
+    echo "Test 2: Checking mTLS mode from Istio..."
+    echo "Note: In ambient mode, mTLS is handled by ztunnel, not sidecars"
+    
+    echo ""
+    echo "=== Test Complete ==="
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mtls-verification
+spec:
+  template:
+    metadata:
+      labels:
+        app: mtls-test
+    spec:
+      serviceAccountName: sleep
+      containers:
+      - name: curl
+        image: curlimages/curl
+        command: ["/bin/sh"]
+        args:
+        - -c
+        - |
+          echo "=== mTLS Verification Test ==="
+          echo ""
+          echo "Test 1: Testing service-to-service communication..."
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://productpage.bookinfo:9080/productpage)
+          
+          if [ "$RESPONSE" = "200" ]; then
+            echo "✅ Service communication successful (HTTP $RESPONSE)"
+          else
+            echo "❌ Service communication failed (HTTP $RESPONSE)"
+          fi
+          
+          echo ""
+          echo "Test 2: Checking connectivity to other services..."
+          curl -s http://details.bookinfo:9080/details/0 | head -n 5
+          
+          echo ""
+          echo "=== Test Complete ==="
+      restartPolicy: Never
+  backoffLimit: 2

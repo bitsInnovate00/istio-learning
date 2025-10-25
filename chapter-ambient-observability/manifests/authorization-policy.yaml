@@ -1,0 +1,50 @@
+# Authorization policy for L7 (requires waypoint proxy)
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: productpage-viewer
+  namespace: bookinfo
+spec:
+  selector:
+    matchLabels:
+      app: productpage
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/bookinfo/sa/sleep"]
+    to:
+    - operation:
+        methods: ["GET"]
+        paths: ["/productpage"]
+---
+# Deny policy example
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-all
+  namespace: bookinfo
+spec:
+  action: DENY
+  rules:
+  - from:
+    - source:
+        notNamespaces: ["bookinfo"]
+---
+# Allow specific service accounts
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: details-viewer
+  namespace: bookinfo
+spec:
+  selector:
+    matchLabels:
+      app: details
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals: 
+        - "cluster.local/ns/bookinfo/sa/bookinfo-productpage"
+        - "cluster.local/ns/bookinfo/sa/bookinfo-reviews"

@@ -1,0 +1,71 @@
+# Resource optimization for Istio components
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: istio-resource-tuning
+  namespace: istio-system
+data:
+  values.yaml: |
+    pilot:
+      autoscaleEnabled: true
+      autoscaleMin: 2
+      autoscaleMax: 5
+      cpu:
+        targetAverageUtilization: 80
+      resources:
+        requests:
+          cpu: 1000m
+          memory: 2048Mi
+        limits:
+          cpu: 2000m
+          memory: 4096Mi
+    
+    global:
+      proxy:
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      
+      # Ambient-specific settings
+      ambient:
+        ztunnel:
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+# Tune Prometheus retention
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: observability
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+    
+    storage:
+      tsdb:
+        retention.time: 7d
+        retention.size: 10GB
+    
+    scrape_configs:
+    - job_name: 'istio-mesh'
+      kubernetes_sd_configs:
+      - role: endpoints
+        namespaces:
+          names:
+          - istio-system
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+        action: keep
+        regex: istio-telemetry;prometheus

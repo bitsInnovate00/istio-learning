@@ -1,0 +1,47 @@
+apiVersion: telemetry.istio.io/v1alpha1
+kind: Telemetry
+metadata:
+  name: mesh-default
+  namespace: istio-system
+spec:
+  # Enable access logging
+  accessLogging:
+    - providers:
+        - name: envoy
+  # Configure tracing
+  tracing:
+    - providers:
+        - name: jaeger
+      randomSamplingPercentage: 100.0
+      customTags:
+        my_tag_header:
+          header:
+            name: host
+  # Configure metrics
+  metrics:
+    - providers:
+        - name: prometheus
+      overrides:
+        - match:
+            metric: ALL_METRICS
+          tagOverrides:
+            request_protocol:
+              value: istio_request_protocol
+            response_code:
+              value: istio_response_code
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: istio-observability
+  namespace: istio-system
+data:
+  mesh: |
+    accessLogFile: /dev/stdout
+    enableTracing: true
+    defaultConfig:
+      tracing:
+        sampling: 100.0
+        max_path_tag_length: 256
+        zipkin:
+          address: jaeger-collector.observability:9411
