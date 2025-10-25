@@ -1,0 +1,24 @@
+# Maven build directories
+**/target/
+
+# Compiled Java files
+*.class
+
+# JAR files
+*.jar
+*.war
+*.ear
+
+# Log files
+*.log
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Temporary files
+*.tmp
+*.swp
+*~
