@@ -73,10 +73,12 @@ no running Istio pods in "istio-system"
 # Create namespaces
 kubectl create namespace istio-system
 kubectl create namespace istio-ingress
-kubectl create namespace observability
+# Note: Observability components will deploy to istio-system
 
-# Install Istio with ambient profile
+# Install Istio with ambient profile (with ingress gateway)
 istioctl install --set profile=ambient \
+  --set components.ingressGateways[0].name=istio-ingressgateway \
+  --set components.ingressGateways[0].enabled=true \
   --set values.pilot.resources.requests.cpu=1000m \
   --set values.pilot.resources.requests.memory=2Gi \
   --set values.global.proxy.resources.requests.cpu=100m \
@@ -118,64 +120,59 @@ kubectl get namespace bookinfo --show-labels
 ### Step 3.1: Install Prometheus
 
 ```bash
-# Apply Prometheus for Istio
-kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/prometheus.yaml -n observability
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/prometheus.yaml
 
-# Wait for Prometheus to be ready
-kubectl wait --for=condition=available --timeout=300s deployment/prometheus -n observability
+# Wait for deployment
+kubectl wait --for=condition=available --timeout=300s deployment/prometheus -n istio-system
 
-# Verify Prometheus
-kubectl get pods -n observability -l app=prometheus
+# Verify
+kubectl get pods -n istio-system -l app=prometheus
 ```
 
-### Step 3.2: Install Grafana with Istio Dashboards
+### Step 3.2: Install Grafana
 
 ```bash
-# Apply Grafana
-kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/grafana.yaml -n observability
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/grafana.yaml
 
-# Wait for Grafana to be ready
-kubectl wait --for=condition=available --timeout=300s deployment/grafana -n observability
+# Wait for deployment
+kubectl wait --for=condition=available --timeout=300s deployment/grafana -n istio-system
 
-# Verify Grafana
-kubectl get pods -n observability -l app=grafana
+# Verify
+kubectl get pods -n istio-system -l app=grafana
 ```
 
-### Step 3.3: Install Jaeger for Distributed Tracing
+### Step 3.3: Install Jaeger
 
 ```bash
-# Apply Jaeger
-kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/jaeger.yaml -n observability
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/jaeger.yaml
 
-# Wait for Jaeger to be ready
-kubectl wait --for=condition=available --timeout=300s deployment/jaeger -n observability
+# Wait for deployment
+kubectl wait --for=condition=available --timeout=300s deployment/jaeger -n istio-system
 
-# Verify Jaeger
-kubectl get pods -n observability -l app=jaeger
+# Verify
+kubectl get pods -n istio-system -l app=jaeger
 ```
 
-### Step 3.4: Install Kiali for Service Mesh Visualization
+### Step 3.4: Install Kiali
 
 ```bash
-# Apply Kiali
-kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/kiali.yaml -n observability
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/kiali.yaml
 
-# Wait for Kiali to be ready
-kubectl wait --for=condition=available --timeout=300s deployment/kiali -n observability
+# Wait for deployment
+kubectl wait --for=condition=available --timeout=300s deployment/kiali -n istio-system
 
-# Verify Kiali
-kubectl get pods -n observability -l app=kiali
+# Verify
+kubectl get pods -n istio-system -l app=kiali
 ```
 
 ### Step 3.5: Verify All Observability Components
 
 ```bash
-# Check all pods in observability namespace
-kubectl get pods -n observability
+# Check all pods in istio-system namespace
+kubectl get pods -n istio-system
 
 # Check services
-kubectl get svc -n observability
-```
+kubectl get svc -n istio-system
 
 **Expected Output:** All pods Running, Services created for each component
 
@@ -266,11 +263,13 @@ done
 ### Step 6.1: Access Grafana
 
 ```bash
-# Port-forward Grafana
-kubectl port-forward -n observability svc/grafana 3000:3000 &
+### Step 6.1: Access Grafana
 
-# Access in browser: http://localhost:3000
-# Default credentials: admin/admin
+```bash
+# Start port-forward (in terminal 1)
+kubectl port-forward -n istio-system svc/grafana 3000:3000 &
+
+# Access Grafana at: http://localhost:3000
 ```
 
 **Dashboards to Check:**
@@ -282,11 +281,13 @@ kubectl port-forward -n observability svc/grafana 3000:3000 &
 ### Step 6.2: Access Kiali
 
 ```bash
-# Port-forward Kiali
-kubectl port-forward -n observability svc/kiali 20001:20001 &
+### Step 6.2: Access Kiali
 
-# Access in browser: http://localhost:20001
-# Default credentials: admin/admin
+```bash
+# Start port-forward (in terminal 2)
+kubectl port-forward -n istio-system svc/kiali 20001:20001 &
+
+# Access Kiali at: http://localhost:20001
 ```
 
 **What to Verify:**
@@ -298,10 +299,13 @@ kubectl port-forward -n observability svc/kiali 20001:20001 &
 ### Step 6.3: Access Jaeger
 
 ```bash
-# Port-forward Jaeger
-kubectl port-forward -n observability svc/tracing 16686:16686 &
+### Step 6.3: Access Jaeger
 
-# Access in browser: http://localhost:16686
+```bash
+# Start port-forward (in terminal 3) - Note the correct port mapping
+kubectl port-forward -n istio-system svc/tracing 16686:80 &
+
+# Access Jaeger at: http://localhost:16686
 ```
 
 **What to Verify:**
@@ -312,10 +316,13 @@ kubectl port-forward -n observability svc/tracing 16686:16686 &
 ### Step 6.4: Access Prometheus
 
 ```bash
-# Port-forward Prometheus
-kubectl port-forward -n observability svc/prometheus 9090:9090 &
+### Step 6.4: Access Prometheus
 
-# Access in browser: http://localhost:9090
+```bash
+# Start port-forward (in terminal 4)
+kubectl port-forward -n istio-system svc/prometheus 9090:9090 &
+
+# Access Prometheus at: http://localhost:9090
 ```
 
 **Sample Queries:**
@@ -475,7 +482,7 @@ kubectl get namespace bookinfo -o yaml | grep dataplane-mode
 ### Issue 3: Observability Not Showing Data
 ```bash
 # Verify Prometheus targets
-kubectl port-forward -n observability svc/prometheus 9090:9090
+kubectl port-forward -n istio-system svc/prometheus 9090:9090
 # Visit http://localhost:9090/targets
 
 # Check Istio telemetry config

@@ -199,29 +199,29 @@ All 8 critical fixes have been applied and validated:
 ./scripts/open-dashboards.sh
 ```
 
-### Option 2: Individual Dashboards
+### Manual Access (Individual Dashboards)
 
 **Grafana:**
 ```bash
-kubectl port-forward -n observability svc/grafana 3000:3000
-# Open http://localhost:3000 (admin/admin)
+kubectl port-forward -n istio-system svc/grafana 3000:3000
+# Open http://localhost:3000
 ```
 
 **Kiali:**
 ```bash
-kubectl port-forward -n observability svc/kiali 20001:20001
-# Open http://localhost:20001 (admin/admin)
+kubectl port-forward -n istio-system svc/kiali 20001:20001
+# Open http://localhost:20001
 ```
 
-**Jaeger:**
+**Jaeger:** ⚠️ **Note the correct port mapping (16686:80)**
 ```bash
-kubectl port-forward -n observability svc/tracing 16686:16686
+kubectl port-forward -n istio-system svc/tracing 16686:80
 # Open http://localhost:16686
 ```
 
 **Prometheus:**
 ```bash
-kubectl port-forward -n observability svc/prometheus 9090:9090
+kubectl port-forward -n istio-system svc/prometheus 9090:9090
 # Open http://localhost:9090
 ```
 
@@ -315,7 +315,7 @@ kubectl get namespace bookinfo -o yaml | grep dataplane-mode
 ### Observability Not Showing Data
 ```bash
 # Check Prometheus targets
-kubectl port-forward -n observability svc/prometheus 9090:9090
+kubectl port-forward -n istio-system svc/prometheus 9090:9090
 # Visit http://localhost:9090/targets
 
 # Restart istiod
