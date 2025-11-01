@@ -2,14 +2,50 @@
 
 # Quick start script for Istio Ambient Mode with Observability
 # This script automates the entire installation process
+# Usage: ./quick-start.sh [OPTIONS]
+# Options:
+#   --with-apisix    Deploy Apache APISIX API Gateway (optional)
+#   --help           Show this help message
 
 set -e
 
 PROFILE="istio-ambient"
 ISTIO_VERSION="1.24.0"
+ENABLE_APISIX=false
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --with-apisix)
+            ENABLE_APISIX=true
+            shift
+            ;;
+        --help)
+            echo "Usage: ./quick-start.sh [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --with-apisix    Deploy Apache APISIX API Gateway alongside Istio"
+            echo "                   (Adds API management, rate limiting, authentication)"
+            echo "  --help           Show this help message"
+            echo ""
+            echo "Examples:"
+            echo "  ./quick-start.sh                    # Deploy Istio only"
+            echo "  ./quick-start.sh --with-apisix      # Deploy Istio + APISIX"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
 
 echo "======================================"
 echo "Istio Ambient Mode Quick Start"
+if [ "$ENABLE_APISIX" = true ]; then
+    echo "  + Apache APISIX API Gateway"
+fi
 echo "======================================"
 echo ""
 
@@ -17,6 +53,7 @@ echo ""
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 function print_status() {
@@ -31,20 +68,34 @@ function print_warning() {
     echo -e "${YELLOW}[!]${NC} $1"
 }
 
+function print_info() {
+    echo -e "${BLUE}[ℹ]${NC} $1"
+}
+
 # Step 1: Start Minikube
 echo "Step 1: Starting Minikube..."
 if minikube status -p $PROFILE &> /dev/null; then
     print_warning "Minikube profile '$PROFILE' already exists"
-    read -p "Delete and recreate? (y/n) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        minikube delete -p $PROFILE
-    else
+    
+    # Check if cluster is actually healthy
+    if kubectl cluster-info &> /dev/null; then
         print_status "Using existing Minikube cluster"
+        
+        # Clean up old failed pods if any
+        print_info "Cleaning up any failed deployments..."
+        kubectl delete namespace apisix bookinfo --ignore-not-found=true --wait=false 2>/dev/null || true
+        
+        # Wait a moment for cleanup
+        sleep 3
+    else
+        print_warning "Cluster exists but not responding, restarting..."
+        minikube stop -p $PROFILE 2>/dev/null || true
+        sleep 2
+        minikube start -p $PROFILE
+        print_status "Minikube restarted successfully"
     fi
-fi
-
-if ! minikube status -p $PROFILE &> /dev/null; then
+else
+    print_info "Creating new Minikube cluster..."
     minikube start \
         --cpus=8 \
         --memory=14336 \
@@ -55,9 +106,15 @@ if ! minikube status -p $PROFILE &> /dev/null; then
     
     minikube addons enable metrics-server -p $PROFILE
     print_status "Minikube started successfully"
-else
-    print_status "Minikube already running"
 fi
+
+# Verify cluster is accessible
+echo "Verifying cluster connectivity..."
+if ! kubectl cluster-info &> /dev/null; then
+    print_error "Cannot connect to cluster"
+    exit 1
+fi
+print_status "Cluster is accessible"
 
 # Step 2: Download Istio
 echo ""
@@ -187,10 +244,42 @@ else
     print_error "Ingress gateway is not running"
 fi
 
+# Step 10: Deploy APISIX (optional)
+if [ "$ENABLE_APISIX" = true ]; then
+    echo ""
+    echo "Step 10: Deploying Apache APISIX API Gateway..."
+    print_info "APISIX will provide API management capabilities alongside Istio"
+    
+    if [ -x "./scripts/deploy-apisix.sh" ]; then
+        ./scripts/deploy-apisix.sh
+        print_status "APISIX deployed successfully"
+    else
+        print_error "deploy-apisix.sh not found or not executable"
+    fi
+fi
+
 echo ""
 echo "======================================"
 echo "Installation Complete!"
 echo "======================================"
+echo ""
+echo "Architecture deployed:"
+if [ "$ENABLE_APISIX" = true ]; then
+    echo "  Client → APISIX (API Gateway) → Istio Mesh → Services"
+    echo "           ├─ Rate Limiting"
+    echo "           ├─ Authentication"
+    echo "           └─ API Management"
+    echo ""
+    echo "  Istio provides:"
+    echo "           ├─ mTLS (automatic)"
+    echo "           ├─ Observability"
+    echo "           └─ Traffic Management"
+else
+    echo "  Client → Istio Gateway → Istio Mesh → Services"
+    echo "           ├─ mTLS (automatic)"
+    echo "           ├─ Observability"
+    echo "           └─ Traffic Management"
+fi
 echo ""
 echo "Next steps:"
 echo ""
@@ -210,21 +299,67 @@ echo "4. Access Prometheus:"
 echo "   kubectl port-forward -n istio-system svc/prometheus 9090:9090"
 echo "   Open: http://localhost:9090"
 echo ""
-echo "5. Test the application (command line):"
+
+if [ "$ENABLE_APISIX" = true ]; then
+    echo "5. Access APISIX Dashboard:"
+    echo "   kubectl port-forward -n apisix svc/apisix-dashboard 30900:9000"
+    echo "   Open: http://localhost:30900"
+    echo "   Login: admin / admin"
+    echo ""
+    echo "6. Test via APISIX (with API management):"
+    echo "   kubectl port-forward -n apisix svc/apisix-gateway 30800:9080"
+    echo "   curl http://localhost:30800/productpage"
+    echo ""
+    echo "7. Test API with authentication:"
+    echo "   curl http://localhost:30800/api/v1/products/1 -H 'apikey: apikey-12345678901234567890'"
+    echo ""
+    echo "8. View APISIX metrics:"
+    echo "   curl http://localhost:30800/apisix/prometheus/metrics"
+    echo ""
+    echo "9. Test via Istio Gateway (traditional):"
+else
+    echo "5. Test the application (command line):"
+fi
 echo "   MINIKUBE_IP=\$(minikube ip -p $PROFILE)"
 echo "   GATEWAY_PORT=\$(kubectl get svc istio-ingressgateway -n istio-system -o jsonpath='{.spec.ports[?(@.name==\"http2\")].nodePort}')"
 echo "   curl http://\${MINIKUBE_IP}:\${GATEWAY_PORT}/productpage"
 echo ""
-echo "6. Access application in browser (WSL2/Docker driver):"
-echo "   kubectl port-forward -n istio-system svc/istio-ingressgateway 8080:80"
-echo "   Open: http://localhost:8080/productpage"
-echo ""
-echo "7. Open all dashboards (in separate terminals):"
-echo "   ./scripts/open-dashboards.sh"
-echo ""
-echo "8. Generate traffic:"
-echo "   ./scripts/generate-traffic.sh 100 2"
-echo ""
-echo "9. Run verification tests:"
-echo "   ./scripts/verify-installation.sh"
+
+if [ "$ENABLE_APISIX" = false ]; then
+    echo "6. Access application in browser (WSL2/Docker driver):"
+    echo "   kubectl port-forward -n istio-system svc/istio-ingressgateway 8080:80"
+    echo "   Open: http://localhost:8080/productpage"
+    echo ""
+    echo "7. Open all dashboards (in separate terminals):"
+    echo "   ./scripts/open-dashboards.sh"
+    echo ""
+    echo "8. Generate traffic:"
+    echo "   ./scripts/generate-traffic.sh 100 2"
+    echo ""
+    echo "9. Run verification tests:"
+    echo "   ./scripts/verify-installation.sh"
+    echo ""
+else
+    echo "10. Access application in browser (WSL2/Docker driver):"
+    echo "    kubectl port-forward -n istio-system svc/istio-ingressgateway 8080:80"
+    echo "    Open: http://localhost:8080/productpage"
+    echo ""
+    echo "11. Open all dashboards (in separate terminals):"
+    echo "    ./scripts/open-dashboards.sh"
+    echo ""
+    echo "12. Generate traffic:"
+    echo "    ./scripts/generate-traffic.sh 100 2"
+    echo ""
+    echo "13. Run verification tests:"
+    echo "    ./scripts/verify-installation.sh --with-apisix"
+    echo ""
+    echo "14. Test APISIX integration:"
+    echo "    ./scripts/test-apisix.sh"
+    echo ""
+fi
+
+if [ "$ENABLE_APISIX" = true ]; then
+    print_info "APISIX Documentation: ./APISIX_ISTIO_INTEGRATION.md"
+    print_info "APISIX Quick Reference: ./APISIX_QUICKSTART.md"
+fi
 echo ""

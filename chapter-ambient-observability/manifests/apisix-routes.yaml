@@ -1,0 +1,263 @@
+# APISIX Route Configurations for Bookinfo Application
+# These routes demonstrate API Gateway features while forwarding to Istio mesh services
+
+# Note: APISIX routes are typically configured via Admin API or Dashboard
+# This file shows example curl commands to create routes programmatically
+
+---
+# Example 1: Basic route to productpage with rate limiting
+# POST to APISIX Admin API: http://localhost:30180/apisix/admin/routes/1
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apisix-routes-config
+  namespace: apisix
+data:
+  # Route 1: Product Page with Rate Limiting
+  route-productpage.json: |
+    {
+      "uri": "/productpage",
+      "name": "productpage-route",
+      "methods": ["GET", "POST"],
+      "upstream": {
+        "type": "roundrobin",
+        "nodes": {
+          "productpage.bookinfo.svc.cluster.local:9080": 1
+        },
+        "timeout": {
+          "connect": 6,
+          "send": 6,
+          "read": 6
+        }
+      },
+      "plugins": {
+        "limit-count": {
+          "count": 100,
+          "time_window": 60,
+          "rejected_code": 429,
+          "rejected_msg": "Too many requests"
+        },
+        "prometheus": {},
+        "cors": {
+          "allow_origins": "*",
+          "allow_methods": "GET,POST",
+          "allow_headers": "*"
+        }
+      }
+    }
+  
+  # Route 2: API endpoints with authentication
+  route-api.json: |
+    {
+      "uri": "/api/v1/products/*",
+      "name": "products-api-route",
+      "methods": ["GET", "POST", "PUT", "DELETE"],
+      "upstream": {
+        "type": "roundrobin",
+        "nodes": {
+          "productpage.bookinfo.svc.cluster.local:9080": 1
+        }
+      },
+      "plugins": {
+        "key-auth": {},
+        "limit-count": {
+          "count": 200,
+          "time_window": 60,
+          "rejected_code": 429
+        },
+        "prometheus": {},
+        "request-id": {
+          "header_name": "X-Request-Id",
+          "include_in_response": true
+        }
+      }
+    }
+  
+  # Route 3: Static content with caching
+  route-static.json: |
+    {
+      "uri": "/static/*",
+      "name": "static-content-route",
+      "methods": ["GET"],
+      "upstream": {
+        "type": "roundrobin",
+        "nodes": {
+          "productpage.bookinfo.svc.cluster.local:9080": 1
+        }
+      },
+      "plugins": {
+        "proxy-cache": {
+          "cache_ttl": 3600,
+          "cache_bypass": ["$arg_bypass"],
+          "cache_method": ["GET"],
+          "cache_http_status": [200, 301, 302],
+          "hide_cache_headers": false
+        },
+        "prometheus": {}
+      }
+    }
+  
+  # Route 4: Reviews service with canary deployment (traffic splitting)
+  route-reviews-canary.json: |
+    {
+      "uri": "/reviews/*",
+      "name": "reviews-canary-route",
+      "methods": ["GET"],
+      "upstream": {
+        "type": "roundrobin",
+        "nodes": {
+          "reviews.bookinfo.svc.cluster.local:9080": 1
+        }
+      },
+      "plugins": {
+        "traffic-split": {
+          "rules": [
+            {
+              "match": [
+                {
+                  "vars": [
+                    ["http_user_agent", "~~", ".*Mobile.*"]
+                  ]
+                }
+              ],
+              "weighted_upstreams": [
+                {
+                  "upstream": {
+                    "name": "reviews-v2",
+                    "type": "roundrobin",
+                    "nodes": {
+                      "reviews.bookinfo.svc.cluster.local:9080": 1
+                    }
+                  },
+                  "weight": 50
+                },
+                {
+                  "upstream": {
+                    "name": "reviews-v3",
+                    "type": "roundrobin",
+                    "nodes": {
+                      "reviews.bookinfo.svc.cluster.local:9080": 1
+                    }
+                  },
+                  "weight": 50
+                }
+              ]
+            }
+          ]
+        },
+        "prometheus": {}
+      }
+    }
+  
+  # Route 5: Health check and monitoring endpoints
+  route-health.json: |
+    {
+      "uri": "/health",
+      "name": "health-check-route",
+      "methods": ["GET"],
+      "upstream": {
+        "type": "roundrobin",
+        "nodes": {
+          "productpage.bookinfo.svc.cluster.local:9080": 1
+        },
+        "checks": {
+          "active": {
+            "http_path": "/health",
+            "healthy": {
+              "interval": 5,
+              "successes": 2
+            },
+            "unhealthy": {
+              "interval": 5,
+              "http_failures": 3
+            }
+          }
+        }
+      },
+      "plugins": {
+        "prometheus": {}
+      }
+    }
+  
+  # Route 6: Login/Logout with IP restriction
+  route-auth.json: |
+    {
+      "uri": "/(login|logout)",
+      "name": "auth-route",
+      "methods": ["GET", "POST"],
+      "upstream": {
+        "type": "roundrobin",
+        "nodes": {
+          "productpage.bookinfo.svc.cluster.local:9080": 1
+        }
+      },
+      "plugins": {
+        "ip-restriction": {
+          "whitelist": ["0.0.0.0/0"]
+        },
+        "limit-count": {
+          "count": 20,
+          "time_window": 60,
+          "rejected_code": 429
+        },
+        "prometheus": {}
+      }
+    }
+  
+  # Route 7: Ratings service with circuit breaker
+  route-ratings.json: |
+    {
+      "uri": "/ratings/*",
+      "name": "ratings-route",
+      "methods": ["GET", "POST"],
+      "upstream": {
+        "type": "roundrobin",
+        "nodes": {
+          "ratings.bookinfo.svc.cluster.local:9080": 1
+        },
+        "timeout": {
+          "connect": 6,
+          "send": 6,
+          "read": 6
+        },
+        "pass_host": "pass",
+        "keepalive_pool": {
+          "size": 320,
+          "idle_timeout": 60,
+          "requests": 1000
+        }
+      },
+      "plugins": {
+        "limit-count": {
+          "count": 300,
+          "time_window": 60
+        },
+        "prometheus": {}
+      }
+    }
+  
+  # Route 8: Details service with logging
+  route-details.json: |
+    {
+      "uri": "/details/*",
+      "name": "details-route",
+      "methods": ["GET"],
+      "upstream": {
+        "type": "roundrobin",
+        "nodes": {
+          "details.bookinfo.svc.cluster.local:9080": 1
+        }
+      },
+      "plugins": {
+        "http-logger": {
+          "uri": "http://prometheus.istio-system.svc.cluster.local:9090/api/v1/write",
+          "batch_max_size": 1000,
+          "max_retry_count": 2,
+          "retry_delay": 1,
+          "buffer_duration": 60,
+          "inactive_timeout": 5
+        },
+        "prometheus": {}
+      }
+    }

@@ -1,0 +1,215 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apisix
+  labels:
+    istio.io/dataplane-mode: ambient
+---
+# etcd StatefulSet for APISIX configuration storage
+apiVersion: v1
+kind: Service
+metadata:
+  name: etcd
+  namespace: apisix
+spec:
+  type: ClusterIP
+  ports:
+    - name: client
+      port: 2379
+      targetPort: 2379
+    - name: peer
+      port: 2380
+      targetPort: 2380
+  selector:
+    app: etcd
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: etcd
+  namespace: apisix
+spec:
+  serviceName: etcd
+  replicas: 1
+  selector:
+    matchLabels:
+      app: etcd
+  template:
+    metadata:
+      labels:
+        app: etcd
+    spec:
+      containers:
+        - name: etcd
+          image: quay.io/coreos/etcd:v3.5.9
+          command:
+            - etcd
+            - --name=etcd0
+            - --data-dir=/etcd-data
+            - --listen-client-urls=http://0.0.0.0:2379
+            - --advertise-client-urls=http://etcd.apisix.svc.cluster.local:2379
+            - --listen-peer-urls=http://0.0.0.0:2380
+            - --initial-advertise-peer-urls=http://etcd-0.etcd.apisix.svc.cluster.local:2380
+            - --initial-cluster=etcd0=http://etcd-0.etcd.apisix.svc.cluster.local:2380
+            - --initial-cluster-state=new
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          ports:
+            - containerPort: 2379
+              name: client
+            - containerPort: 2380
+              name: peer
+          volumeMounts:
+            - name: etcd-data
+              mountPath: /etcd-data
+  volumeClaimTemplates:
+    - metadata:
+        name: etcd-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+---
+# APISIX ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apisix-config
+  namespace: apisix
+data:
+  config.yaml: |
+    apisix:
+      node_listen: 9080
+      enable_ipv6: false
+      enable_control: true
+      enable_admin: true
+      enable_admin_cors: true
+      
+    deployment:
+      role: traditional
+      role_traditional:
+        config_provider: etcd
+      
+      admin:
+        admin_key:
+          - name: "admin"
+            key: edd1c9f034335f136f87ad84b625c8f1
+            role: admin
+        enable_admin_cors: true
+        allow_admin:
+          - 0.0.0.0/0
+      
+      etcd:
+        host:
+          - "http://etcd.apisix.svc.cluster.local:2379"
+        prefix: "/apisix"
+        timeout: 30
+    
+    nginx_config:
+      error_log: "logs/error.log"
+      error_log_level: "warn"
+      worker_processes: auto
+      
+    plugin_attr:
+      prometheus:
+        export_addr:
+          ip: "0.0.0.0"
+          port: 9091
+---
+# APISIX Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: apisix-gateway
+  namespace: apisix
+spec:
+  type: NodePort
+  selector:
+    app: apisix
+  ports:
+    - name: http
+      port: 9080
+      targetPort: 9080
+      nodePort: 30800
+    - name: https
+      port: 9443
+      targetPort: 9443
+      nodePort: 30443
+    - name: admin
+      port: 9180
+      targetPort: 9180
+      nodePort: 30180
+    - name: prometheus
+      port: 9091
+      targetPort: 9091
+---
+# APISIX Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apisix
+  namespace: apisix
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: apisix
+  template:
+    metadata:
+      labels:
+        app: apisix
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9091"
+        prometheus.io/path: "/apisix/prometheus/metrics"
+    spec:
+      containers:
+        - name: apisix
+          image: apache/apisix:3.7.0-debian
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9080
+              name: http
+            - containerPort: 9443
+              name: https
+            - containerPort: 9180
+              name: admin
+            - containerPort: 9091
+              name: prometheus
+          volumeMounts:
+            - name: apisix-config
+              mountPath: /usr/local/apisix/conf/config.yaml
+              subPath: config.yaml
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+          livenessProbe:
+            tcpSocket:
+              port: 9080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 9080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+      volumes:
+        - name: apisix-config
+          configMap:
+            name: apisix-config
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: apisix
+  namespace: apisix

@@ -1,8 +1,32 @@
 #!/bin/bash
 
 # Comprehensive verification script for Istio ambient mode installation
+# Usage: ./verify-installation.sh [--with-apisix]
 
 PROFILE="istio-ambient"
+CHECK_APISIX=false
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --with-apisix)
+            CHECK_APISIX=true
+            shift
+            ;;
+        --help)
+            echo "Usage: ./verify-installation.sh [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --with-apisix    Verify APISIX API Gateway installation"
+            echo "  --help           Show this help message"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
 
 # Colors
 RED='\033[0;31m'
@@ -224,6 +248,79 @@ else
     ((FAIL++))
 fi
 
+# 14. Check APISIX (if enabled)
+if [ "$CHECK_APISIX" = true ]; then
+    print_header "14. Checking APISIX API Gateway"
+    
+    # Check APISIX namespace
+    if kubectl get namespace apisix &> /dev/null; then
+        print_success "APISIX namespace exists"
+        ((PASS++))
+    else
+        print_error "APISIX namespace does not exist"
+        ((FAIL++))
+    fi
+    
+    # Check APISIX pods
+    APISIX_STATUS=$(kubectl get deploy apisix -n apisix -o jsonpath='{.status.availableReplicas}' 2>/dev/null)
+    if [ "$APISIX_STATUS" -ge 1 ]; then
+        print_success "APISIX gateway is running ($APISIX_STATUS replicas)"
+        ((PASS++))
+    else
+        print_error "APISIX gateway is not running"
+        ((FAIL++))
+    fi
+    
+    # Check APISIX Dashboard
+    DASHBOARD_STATUS=$(kubectl get deploy apisix-dashboard -n apisix -o jsonpath='{.status.availableReplicas}' 2>/dev/null)
+    if [ "$DASHBOARD_STATUS" -ge 1 ]; then
+        print_success "APISIX Dashboard is running"
+        ((PASS++))
+    else
+        print_error "APISIX Dashboard is not running"
+        ((FAIL++))
+    fi
+    
+    # Check etcd
+    ETCD_READY=$(kubectl get statefulset etcd -n apisix -o jsonpath='{.status.readyReplicas}' 2>/dev/null)
+    if [ "$ETCD_READY" -ge 1 ]; then
+        print_success "etcd is running"
+        ((PASS++))
+    else
+        print_error "etcd is not running"
+        ((FAIL++))
+    fi
+    
+    # Check APISIX Admin API
+    ADMIN_API_CODE=$(kubectl exec -n apisix deploy/apisix -- curl -s -o /dev/null -w "%{http_code}" http://localhost:9180/apisix/admin/routes -H "X-API-KEY: edd1c9f034335f136f87ad84b625c8f1" 2>/dev/null)
+    if [ "$ADMIN_API_CODE" == "200" ]; then
+        print_success "APISIX Admin API is accessible"
+        ((PASS++))
+    else
+        print_warning "APISIX Admin API check failed (HTTP $ADMIN_API_CODE)"
+        ((FAIL++))
+    fi
+    
+    # Check APISIX → Istio connectivity
+    APISIX_CONN=$(kubectl exec -n apisix deploy/apisix -- curl -s -o /dev/null -w "%{http_code}" http://productpage.bookinfo.svc.cluster.local:9080/productpage 2>/dev/null)
+    if [ "$APISIX_CONN" == "200" ]; then
+        print_success "APISIX can communicate with Istio mesh services"
+        ((PASS++))
+    else
+        print_error "APISIX cannot reach Istio mesh services (HTTP $APISIX_CONN)"
+        ((FAIL++))
+    fi
+    
+    # Check if APISIX is in ambient mode
+    APISIX_AMBIENT=$(kubectl get namespace apisix -o jsonpath='{.metadata.labels.istio\.io/dataplane-mode}' 2>/dev/null)
+    if [ "$APISIX_AMBIENT" == "ambient" ]; then
+        print_success "APISIX namespace is in ambient mode"
+        ((PASS++))
+    else
+        print_warning "APISIX namespace is not in ambient mode"
+    fi
+fi
+
 # Summary
 print_header "Verification Summary"
 
@@ -238,6 +335,16 @@ echo ""
 
 if [ $FAIL -eq 0 ]; then
     echo -e "${GREEN}✓ All checks passed! Installation is successful.${NC}"
+    if [ "$CHECK_APISIX" = true ]; then
+        echo ""
+        echo "Architecture deployed:"
+        echo "  Client → APISIX (API Gateway) → Istio Mesh → Services"
+        echo ""
+        echo "Access points:"
+        echo "  - APISIX Gateway: http://localhost:30800"
+        echo "  - APISIX Dashboard: http://localhost:30900"
+        echo "  - Istio Gateway: http://$(minikube ip -p $PROFILE):$(kubectl get svc istio-ingressgateway -n istio-system -o jsonpath='{.spec.ports[?(@.name=="http2")].nodePort}')"
+    fi
     exit 0
 else
     echo -e "${RED}✗ Some checks failed. Please review the errors above.${NC}"
@@ -246,5 +353,9 @@ else
     echo "1. Wait for pods to be ready: kubectl wait --for=condition=ready pod --all -n <namespace>"
     echo "2. Check pod logs: kubectl logs -n <namespace> <pod-name>"
     echo "3. Restart failed pods: kubectl rollout restart deployment/<name> -n <namespace>"
+    if [ "$CHECK_APISIX" = true ]; then
+        echo "4. Check APISIX logs: kubectl logs -n apisix deploy/apisix -f"
+        echo "5. Verify routes: curl http://localhost:30180/apisix/admin/routes -H 'X-API-KEY: edd1c9f034335f136f87ad84b625c8f1'"
+    fi
     exit 1
 fi

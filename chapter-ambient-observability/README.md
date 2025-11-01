@@ -12,6 +12,7 @@ This directory contains a complete, tested implementation guide and all necessar
 - ✅ **Automated Scripts**: One-command installation and verification
 - ✅ **Comprehensive Testing**: 23-point validation suite
 - ✅ **Production Ready**: All known issues fixed and validated
+- 🆕 **Optional APISIX**: API Gateway with rate limiting, authentication, caching (opt-in feature)
 
 ## 📋 What's Included
 
@@ -51,7 +52,9 @@ This directory contains a complete, tested implementation guide and all necessar
 - **Software**: Minikube v1.31+, kubectl v1.28+, Docker
 - **OS**: Linux, macOS, or Windows with WSL2
 
-### One-Command Installation ⚡
+### Installation Options
+
+#### Option 1: Standard Installation (Istio Only) ⚡
 
 ```bash
 # Navigate to the directory
@@ -62,7 +65,6 @@ chmod +x scripts/*.sh
 
 # Run the quick start script (10-15 minutes)
 ./scripts/quick-start.sh
-./scripts/quick-start.sh
 ```
 
 **Expected Result**: Script completes successfully with:
@@ -70,17 +72,50 @@ chmod +x scripts/*.sh
 - ✅ Ingress gateway running
 - ✅ Gateway URL displayed: `http://<MINIKUBE_IP>:<PORT>/productpage`
 
+#### Option 2: With APISIX API Gateway (Opt-in Feature) 🆕
+
+```bash
+# Install Istio + APISIX for comprehensive API management
+./scripts/quick-start.sh --with-apisix
+```
+
+This adds:
+- ✅ Apache APISIX API Gateway
+- ✅ APISIX Dashboard (visual management)
+- ✅ Rate limiting (100 req/min default)
+- ✅ API key authentication
+- ✅ Response caching
+- ✅ Request transformation
+- ✅ API analytics and metrics
+
+**Architecture with APISIX**:
+```
+Client → APISIX (API Gateway) → Istio Mesh → Services
+         ├─ Rate Limiting            ├─ mTLS
+         ├─ Authentication           ├─ Observability
+         └─ API Management           └─ Traffic Mgmt
+```
+
+See [APISIX Integration Guide](APISIX_ISTIO_INTEGRATION.md) for details.
+
 ### Verification (Critical Step)
 
+**For standard installation:**
 ```bash
 # Run comprehensive validation (should show 23/23 checks passing)
 ./scripts/verify-installation.sh
 ```
 
+**For installation with APISIX:**
+```bash
+# Verify both Istio and APISIX (30 checks)
+./scripts/verify-installation.sh --with-apisix
+```
+
 **Expected Output**:
 ```
 ✓ All checks passed! Installation is successful.
-Total checks: 23
+Total checks: 23  (or 30 with APISIX)
 Passed: 23
 Failed: 0
 Success rate: 100.00%
@@ -273,6 +308,9 @@ kubectl logs -n bookinfo job/mtls-verification
 chapter-ambient-observability/
 ├── IMPLEMENTATION_GUIDE.md          # Detailed implementation guide
 ├── README.md                         # This file
+├── APISIX_ISTIO_INTEGRATION.md      # 🆕 APISIX + Istio architecture guide
+├── APISIX_QUICKSTART.md             # 🆕 APISIX quick reference
+├── config.env                        # 🆕 Feature flags and configuration
 ├── manifests/                        # All Kubernetes manifests
 │   ├── bookinfo-app.yaml
 │   ├── bookinfo-gateway.yaml
@@ -285,13 +323,19 @@ chapter-ambient-observability/
 │   ├── authorization-policy.yaml
 │   ├── cert-manager-integration.yaml
 │   ├── resource-tuning.yaml
-│   └── istiod-hpa.yaml
+│   ├── istiod-hpa.yaml
+│   ├── apisix-deployment.yaml       # 🆕 APISIX Gateway + etcd
+│   ├── apisix-dashboard.yaml        # 🆕 APISIX Dashboard
+│   ├── apisix-plugins.yaml          # 🆕 APISIX plugins config
+│   └── apisix-routes.yaml           # 🆕 Route examples
 └── scripts/                          # Automation scripts
-    ├── quick-start.sh
-    ├── verify-installation.sh
+    ├── quick-start.sh                # (Updated with --with-apisix flag)
+    ├── verify-installation.sh        # (Updated with --with-apisix flag)
+    ├── cleanup.sh                    # (Updated with --with-apisix flag)
+    ├── deploy-apisix.sh              # 🆕 APISIX deployment script
+    ├── test-apisix.sh                # 🆕 APISIX integration tests
     ├── generate-traffic.sh
-    ├── open-dashboards.sh
-    └── cleanup.sh
+    └── open-dashboards.sh
 ```
 
 ## 🔧 Troubleshooting
@@ -333,24 +377,36 @@ kubectl exec -n bookinfo deploy/sleep -- curl -v http://productpage:9080/product
 
 ## 🧹 Cleanup
 
-To remove everything:
-
+**For standard installation:**
 ```bash
 ./scripts/cleanup.sh
+```
+
+**For installation with APISIX:**
+```bash
+./scripts/cleanup.sh --with-apisix
 ```
 
 This will remove:
 - Bookinfo application
 - Observability stack
 - Istio control plane
+- APISIX components (if installed)
 - All configurations
 - Optionally: Minikube cluster
 
 ## 📖 Resources
 
+### Core Documentation
 - [Istio Ambient Mesh Documentation](https://istio.io/latest/docs/ambient/)
 - [Istio Observability](https://istio.io/latest/docs/tasks/observability/)
 - [Implementation Guide](./IMPLEMENTATION_GUIDE.md)
+
+### APISIX Integration (Optional Feature)
+- [APISIX + Istio Integration Guide](./APISIX_ISTIO_INTEGRATION.md) - Complete architecture documentation
+- [APISIX Quick Start](./APISIX_QUICKSTART.md) - Quick reference and examples
+- [Apache APISIX Documentation](https://apisix.apache.org/docs/)
+- [Feature Configuration](./config.env) - Toggle APISIX and other features
 
 ## 🎓 Learning Path
 

@@ -1,11 +1,50 @@
 #!/bin/bash
 
 # Cleanup script to remove Istio and all components
+# Usage: ./cleanup.sh [--with-apisix]
 
 PROFILE="istio-ambient"
+CLEANUP_APISIX=false
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --with-apisix)
+            CLEANUP_APISIX=true
+            shift
+            ;;
+        --help)
+            echo "Usage: ./cleanup.sh [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --with-apisix    Also cleanup APISIX components"
+            echo "  --help           Show this help message"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
+
+# Auto-detect APISIX if namespace exists
+if kubectl get namespace apisix &> /dev/null; then
+    if [ "$CLEANUP_APISIX" = false ]; then
+        echo "APISIX namespace detected!"
+        read -p "Also cleanup APISIX? (y/n) " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            CLEANUP_APISIX=true
+        fi
+    fi
+fi
 
 echo "======================================"
 echo "Istio Ambient Mode Cleanup"
+if [ "$CLEANUP_APISIX" = true ]; then
+    echo "  + Apache APISIX"
+fi
 echo "======================================"
 echo ""
 echo "This will delete:"
@@ -13,6 +52,11 @@ echo "  - Bookinfo application"
 echo "  - Observability stack (from istio-system)"
 echo "  - Istio control plane"
 echo "  - All configurations"
+if [ "$CLEANUP_APISIX" = true ]; then
+    echo "  - APISIX API Gateway"
+    echo "  - APISIX Dashboard"
+    echo "  - etcd (APISIX config storage)"
+fi
 echo "  - Minikube cluster (optional)"
 echo ""
 
@@ -21,6 +65,19 @@ echo
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     echo "Cleanup cancelled"
     exit 0
+fi
+
+# Cleanup APISIX (if enabled)
+if [ "$CLEANUP_APISIX" = true ]; then
+    echo ""
+    echo "Step 0: Deleting APISIX components..."
+    kubectl delete -f manifests/apisix-plugins.yaml --ignore-not-found=true
+    kubectl delete -f manifests/apisix-dashboard.yaml --ignore-not-found=true
+    kubectl delete -f manifests/apisix-deployment.yaml --ignore-not-found=true
+    kubectl delete namespace apisix --ignore-not-found=true
+    echo "✓ APISIX components deleted"
+    echo "  Waiting for namespace to be fully removed..."
+    kubectl wait --for=delete namespace/apisix --timeout=60s 2>/dev/null || echo "  (namespace cleanup may still be in progress)"
 fi
 
 echo ""
@@ -73,5 +130,9 @@ echo "Cleanup Complete!"
 echo "======================================"
 echo ""
 echo "To start fresh, run:"
-echo "  ./scripts/quick-start.sh"
+if [ "$CLEANUP_APISIX" = true ]; then
+    echo "  ./scripts/quick-start.sh --with-apisix"
+else
+    echo "  ./scripts/quick-start.sh"
+fi
 echo ""
